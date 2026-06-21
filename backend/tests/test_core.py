@@ -3,7 +3,8 @@ from types import SimpleNamespace
 import pytest
 
 from app.llm import AnthropicProvider, EMOTIONS, OpenAIProvider, fallback_analysis
-from app.matching import emotion_similarity
+from app.auth import hash_password, verify_password
+from app.matching import emotion_complementarity, emotion_similarity
 
 
 def emotion(**overrides):
@@ -31,6 +32,22 @@ def test_opposite_emotions_do_not_match():
         keywords=["庆祝"],
     )
     assert emotion_similarity(emotion(), other) < 0.65
+
+
+def test_complementary_matching_rewards_shared_context_and_balanced_energy():
+    calmer_peer = emotion(arousal=0.45, intensity=0.6, keywords=["压力", "倾听"])
+    unrelated_peer = emotion(
+        distribution={name: 1.0 if name == "喜悦" else 0.0 for name in EMOTIONS},
+        valence=0.9, arousal=0.1, intensity=0.2, keywords=["庆祝"],
+    )
+    assert emotion_complementarity(emotion(), calmer_peer) > emotion_complementarity(emotion(), unrelated_peer)
+
+
+def test_password_hash_is_argon2_and_verifies():
+    password_hash = hash_password("a-safe-password")
+    assert password_hash.startswith("$argon2")
+    assert verify_password(password_hash, "a-safe-password") is True
+    assert verify_password(password_hash, "wrong-password") is False
 
 
 def test_fallback_detects_crisis_and_is_degraded():
@@ -85,6 +102,27 @@ async def test_openai_standard_adapter(monkeypatch):
     assert url == "https://provider.example/v1/chat/completions"
     assert request["headers"]["Authorization"] == "Bearer secret"
     assert request["json"]["messages"][0]["role"] == "system"
+
+
+@pytest.mark.asyncio
+async def test_openai_adapter_rejects_empty_reasoning_only_response(monkeypatch):
+    settings = SimpleNamespace(
+        openai_base_url="https://provider.example/v1/",
+        openai_api_key="secret",
+        openai_model="reasoning-model",
+        llm_timeout_seconds=5,
+    )
+    monkeypatch.setattr(
+        "app.llm.httpx.AsyncClient",
+        lambda **_: FakeClient({
+            "choices": [{
+                "finish_reason": "length",
+                "message": {"content": "", "reasoning_content": "thinking"},
+            }]
+        }, []),
+    )
+    with pytest.raises(RuntimeError, match="未返回正文"):
+        await OpenAIProvider(settings).complete("system", "hello", 100)
 
 
 @pytest.mark.asyncio

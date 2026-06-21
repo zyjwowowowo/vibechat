@@ -4,6 +4,7 @@ import asyncio
 import json
 import sys
 import time
+from uuid import uuid4
 
 import httpx
 import websockets
@@ -13,7 +14,18 @@ base_url = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8000").rstri
 
 
 def create_user() -> tuple[dict, dict]:
-    session = httpx.post(f"{base_url}/api/v1/sessions", timeout=10).raise_for_status().json()
+    guest = httpx.post(f"{base_url}/api/v1/sessions", timeout=10).raise_for_status().json()
+    session = httpx.post(
+        f"{base_url}/api/v1/auth/register",
+        json={
+            "email": f"smoke-{uuid4().hex}@example.com",
+            "password": "smoke-test-password",
+            "guest_token": guest["token"],
+            "device_name": "smoke test",
+        },
+        timeout=10,
+    ).raise_for_status().json()
+    assert session["is_guest"] is False
     return session, {"X-Session-Token": session["token"]}
 
 
@@ -36,13 +48,13 @@ second_emotion = httpx.post(
 first_ticket = httpx.post(
     f"{base_url}/api/v1/matches",
     headers=first_headers,
-    json={"emotion_id": first_emotion["id"]},
+    json={"emotion_id": first_emotion["id"], "mode": "similar"},
     timeout=10,
 ).raise_for_status().json()
 second_ticket = httpx.post(
     f"{base_url}/api/v1/matches",
     headers=second_headers,
-    json={"emotion_id": second_emotion["id"]},
+    json={"emotion_id": second_emotion["id"], "mode": "similar"},
     timeout=10,
 ).raise_for_status().json()
 
@@ -61,8 +73,19 @@ message = httpx.post(
 conversation = httpx.get(
     f"{base_url}/api/v1/conversations/{conversation_id}", headers=second_headers, timeout=10
 ).raise_for_status().json()
-assert conversation["kind"] == "human"
+assert conversation["kind"] == "direct"
 assert any(item["id"] == message["id"] for item in conversation["messages"])
+
+assist = httpx.post(
+    f"{base_url}/api/v1/conversations/{conversation_id}/assist",
+    headers=first_headers,
+    json={"kind": "icebreaker", "draft": ""},
+    timeout=10,
+).raise_for_status().json()
+assert assist["suggestion"]
+
+rooms = httpx.get(f"{base_url}/api/v1/rooms", headers=first_headers, timeout=10).raise_for_status().json()
+assert len(rooms) >= 4
 
 
 async def websocket_roundtrip() -> None:
@@ -92,7 +115,7 @@ third_emotion = httpx.post(
 third_ticket = httpx.post(
     f"{base_url}/api/v1/matches",
     headers=third_headers,
-    json={"emotion_id": third_emotion["id"]},
+    json={"emotion_id": third_emotion["id"], "mode": "similar"},
     timeout=10,
 ).raise_for_status().json()
 time.sleep(2.2)
@@ -114,5 +137,7 @@ print(
         "conversation_id": conversation_id,
         "messages": len(conversation["messages"]),
         "ai_fallback": ai_conversation["kind"],
+        "rooms": len(rooms),
+        "assist": assist["kind"],
     }
 )

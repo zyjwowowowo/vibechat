@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     llm_provider: str = "openai"
     openai_base_url: str = ""
     openai_api_key: str = ""
-    openai_model: str = "deepseekpro"
+    openai_model: str = "deepseek-chat"
     anthropic_base_url: str = ""
     anthropic_api_key: str = ""
     anthropic_model: str = "deepseekpro"
@@ -29,4 +29,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

@@ -11,4 +11,5 @@ node_modules/
 out/
 coverage/
 *.log
+model (1).ply
 .DS_Store

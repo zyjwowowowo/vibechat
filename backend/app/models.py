@@ -19,11 +19,39 @@ def expires_tomorrow() -> datetime:
     return utcnow() + timedelta(hours=24)
 
 
+def expires_persistently() -> datetime:
+    """Registered data is user-controlled; this far-future value keeps legacy DBs compatible."""
+    return utcnow() + timedelta(days=36500)
+
+
+class Account(Base):
+    __tablename__ = "accounts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class DeviceSession(Base):
+    __tablename__ = "device_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("anonymous_users.id", ondelete="CASCADE"), index=True)
+    token: Mapped[str] = mapped_column(String(96), unique=True, index=True)
+    device_name: Mapped[str] = mapped_column(String(80), default="新设备")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class AnonymousUser(Base):
     __tablename__ = "anonymous_users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     token: Mapped[str] = mapped_column(String(96), unique=True, index=True)
+    account_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True, index=True)
     nickname: Mapped[str] = mapped_column(String(32))
     avatar_seed: Mapped[str] = mapped_column(String(24))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -72,6 +100,8 @@ class Participant(Base):
     nickname: Mapped[str] = mapped_column(String(32))
     avatar_seed: Mapped[str] = mapped_column(String(24))
     is_ai: Mapped[bool] = mapped_column(Boolean, default=False)
+    joined_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    hidden_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class MatchTicket(Base):
@@ -83,6 +113,7 @@ class MatchTicket(Base):
     status: Mapped[str] = mapped_column(String(12), default="waiting", index=True)
     conversation_id: Mapped[str | None] = mapped_column(ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
     match_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mode: Mapped[str] = mapped_column(String(24), default="similar", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime, default=expires_tomorrow, index=True)
 
@@ -102,3 +133,26 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime, default=expires_tomorrow, index=True)
 
+
+class PublicRoom(Base):
+    __tablename__ = "public_rooms"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), unique=True)
+    slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    title: Mapped[str] = mapped_column(String(64))
+    emotion_label: Mapped[str] = mapped_column(String(24), index=True)
+    description: Mapped[str] = mapped_column(String(180))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ConversationSummary(Base):
+    __tablename__ = "conversation_summaries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("anonymous_users.id", ondelete="CASCADE"), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    __table_args__ = (Index("ix_summary_conversation_user", "conversation_id", "user_id", unique=True),)

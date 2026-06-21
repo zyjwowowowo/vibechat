@@ -119,7 +119,12 @@ class OpenAIProvider(LLMProvider):
                 },
             )
             response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
+            payload = response.json()
+            choice = payload["choices"][0]
+            content = choice.get("message", {}).get("content") or ""
+            if not content.strip():
+                raise RuntimeError(f"模型未返回正文（finish_reason={choice.get('finish_reason', 'unknown')}）")
+            return content
 
 
 class AnthropicProvider(LLMProvider):
@@ -148,7 +153,10 @@ class AnthropicProvider(LLMProvider):
             )
             response.raise_for_status()
             blocks = response.json()["content"]
-            return "".join(block.get("text", "") for block in blocks if block.get("type") == "text")
+            content = "".join(block.get("text", "") for block in blocks if block.get("type") == "text")
+            if not content.strip():
+                raise RuntimeError("模型未返回正文")
+            return content
 
 
 class LLMService:
@@ -183,7 +191,7 @@ class LLMService:
         if not self.configured:
             return fallback_analysis(text)
         try:
-            raw = await self._retry(ANALYSIS_PROMPT, text, 700)
+            raw = await self._retry(ANALYSIS_PROMPT, text, 1000)
             return _normalize_emotion(_extract_json(raw))
         except Exception:
             return fallback_analysis(text)
@@ -193,7 +201,28 @@ class LLMService:
             return "我听见了。能把这些说出来已经很不容易。此刻最压在你心上的，是哪一小部分？"
         transcript = "\n".join(f"{item['role']}：{item['content']}" for item in history[-8:])
         try:
-            return (await self._retry(COMPANION_PROMPT, f"用户主情绪：{emotion}\n对话：\n{transcript}", 180)).strip()
+            return (await self._retry(COMPANION_PROMPT, f"用户主情绪：{emotion}\n对话：\n{transcript}", 420)).strip()
         except Exception:
             return "我还在这里。刚才有一瞬间没接住，你愿意再说说此刻最想被理解的是什么吗？"
 
+    async def assist(self, kind: str, emotion: str, history: list[dict[str, str]], draft: str = "") -> str:
+        fallbacks = {
+            "opening": f"我现在有一点{emotion}，还没想好怎么说完整。你愿意先听我讲讲吗？",
+            "gentle_rewrite": f"我想把这件事说清楚，也不希望伤害彼此。{draft or '可以先听听我的感受吗？'}",
+            "icebreaker": "如果把今天的心情比作一种天气，你那里现在是什么样？",
+            "summary": "这段对话里，你认真说出了自己的感受，也给彼此留出了理解的空间。",
+        }
+        if not self.configured:
+            return fallbacks[kind]
+        transcript = "\n".join(f"{item['role']}：{item['content']}" for item in history[-14:])
+        instructions = {
+            "opening": "写一句自然、不冒犯、便于对方回应的中文开场白。",
+            "gentle_rewrite": "把草稿改写得清晰温和，保留原意，不说教。",
+            "icebreaker": "给出一个与当前情绪相关、不过度追问隐私的破冰问题。",
+            "summary": "用两三句中文总结情绪变化和被理解的重点，不做心理诊断。",
+        }
+        prompt = f"主情绪：{emotion}\n任务：{instructions[kind]}\n草稿：{draft}\n对话：\n{transcript}"
+        try:
+            return (await self._retry("你是情绪社交产品中的私密写作助手。只输出建议正文。", prompt, 500)).strip()
+        except Exception:
+            return fallbacks[kind]

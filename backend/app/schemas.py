@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -8,6 +9,23 @@ class SessionResponse(BaseModel):
     user_id: str
     nickname: str
     avatar_seed: str
+    email: str | None = None
+    is_guest: bool = True
+
+
+class AuthRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=320)
+    password: str = Field(min_length=8, max_length=128)
+    guest_token: str | None = None
+    device_name: str = Field(default="网页端", max_length=80)
+
+    @field_validator("email")
+    @classmethod
+    def clean_email(cls, value: str) -> str:
+        value = value.strip().lower()
+        if "@" not in value or value.startswith("@") or value.endswith("@"):
+            raise ValueError("请输入有效邮箱")
+        return value
 
 
 class EmotionRequest(BaseModel):
@@ -37,6 +55,7 @@ class EmotionResult(BaseModel):
 
 class MatchRequest(BaseModel):
     emotion_id: str
+    mode: Literal["similar", "complementary", "private_group"] = "similar"
 
 
 class MatchResponse(BaseModel):
@@ -45,6 +64,11 @@ class MatchResponse(BaseModel):
     conversation_id: str | None = None
     match_score: float | None = None
     waited_seconds: int = 0
+    mode: str = "similar"
+
+
+class MatchFallbackRequest(BaseModel):
+    choice: Literal["continue", "direct", "ai"]
 
 
 class ParticipantResponse(BaseModel):
@@ -52,6 +76,7 @@ class ParticipantResponse(BaseModel):
     avatar_seed: str
     is_ai: bool
     is_self: bool
+    online: bool = False
 
 
 class MessageRequest(BaseModel):
@@ -81,4 +106,45 @@ class ConversationResponse(BaseModel):
     match_score: float | None
     participants: list[ParticipantResponse]
     messages: list[MessageResponse]
+    summary: str | None = None
 
+
+class AssistRequest(BaseModel):
+    kind: Literal["opening", "gentle_rewrite", "icebreaker", "summary"]
+    draft: str = Field(default="", max_length=1000)
+
+
+class AssistResponse(BaseModel):
+    kind: str
+    suggestion: str
+
+
+class RoomResponse(BaseModel):
+    id: str
+    conversation_id: str
+    slug: str
+    title: str
+    emotion_label: str
+    description: str
+    member_count: int = 0
+    joined: bool = False
+
+
+class EmotionHistoryItem(BaseModel):
+    id: str
+    primary_emotion: str
+    intensity: float
+    valence: float
+    arousal: float
+    explanation: str
+    created_at: datetime
+
+
+class ConversationHistoryItem(BaseModel):
+    id: str
+    kind: str
+    emotion_label: str
+    status: str
+    created_at: datetime
+    summary: str | None = None
+    peer_names: list[str] = Field(default_factory=list)
