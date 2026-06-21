@@ -39,6 +39,9 @@ app = FastAPI(title=settings.app_name, version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.origins,
+    # Railway preview/production domains are ephemeral. Allow only Railway's
+    # HTTPS domain suffix in addition to explicitly configured origins.
+    allow_origin_regex=r"https://[a-z0-9-]+\.up\.railway\.app",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
