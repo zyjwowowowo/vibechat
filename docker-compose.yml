@@ -1,0 +1,45 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: vibechat
+      POSTGRES_USER: vibechat
+      POSTGRES_PASSWORD: vibechat
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vibechat"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - vibe_data:/var/lib/postgresql/data
+
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://vibechat:vibechat@db:5432/vibechat
+      CORS_ORIGINS: http://localhost:3000
+      LLM_MOCK_MODE: "true"
+      MATCH_TIMEOUT_SECONDS: 10
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    environment:
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  vibe_data:
+

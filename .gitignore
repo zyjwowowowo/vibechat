@@ -1,0 +1,14 @@
+.env
+.env.local
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+vibechat.db
+node_modules/
+.pnpm-store/
+.next/
+out/
+coverage/
+*.log
+.DS_Store
